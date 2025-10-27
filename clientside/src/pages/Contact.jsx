@@ -6,7 +6,7 @@ const Contact = () => {
     <div>
       <div className="text-center text-2xl pt-10 text-gray-500">
         <p>
-          CONTACT <span className="text-gray-700 font-semibold">US</span>
+          <span className="text-gray-700 font-semibold">CONTACT US</span>
         </p>
       </div>
 
@@ -20,13 +20,13 @@ const Contact = () => {
         <div className="flex flex-col justify-center items-start gap-6">
           <p className="font-semibold text-lg text-gray-600">OUR OFFICE</p>
           <p className="text-gray-500">
-            54709 Willms Station <br /> Suite 350, Washington, USA
+            Lorem ipsum dolor sit amet. <br /> Lorem, ipsum.
           </p>
           <p className="text-gray-500">
-            Tel: (415) 555‑0132 <br /> Email: elyseniyibizi502@gmail.com
-          </p>
+              Tel: (+91) xxx-xxx-xxxx <br /> Email: info@healthHub.com
+            </p>
           <p className="font-semibold text-lg text-gray-600">
-            CAREERS AT PRESCRIPTO
+            GROW WITH US 
           </p>
           <p className="text-gray-500">
             Learn more about our teams and job openings.

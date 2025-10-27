@@ -23,7 +23,7 @@ app.use("/api/doctor", doctorRouter);
 app.use("/api/user", userRouter);
 
 app.get("/", (req, res) => {
-  res.send("Harman, ajay working in this project");
+  res.send("Offical Backend Page of the healthHub Application");
 });
 
 app.listen(port, () => console.log("Server started", port));
