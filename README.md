@@ -7,3 +7,7 @@ This full stack appointment booking system can be used by a doctor or a hospital
 
 <br/><hr/><br/>
 
+ADMIN CREDENITALS: 
+Email : admin@admin.com
+Password : admin123
+
