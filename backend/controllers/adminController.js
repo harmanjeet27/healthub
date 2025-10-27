@@ -58,10 +58,11 @@ const addDoctor = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // upload image to cloudinary
-    const imageUpload = await cloudinary.uploader.upload(imageFile.path, {
-      resource_type: "image",
-    });
-    const imageUrl = imageUpload.secure_url;
+    // const imageUpload = await cloudinary.uploader.upload(imageFile.path, {
+    //   resource_type: "image",
+    // });
+
+    const imageUrl = "https://via.placeholder.com/150";
 
     const doctorData = {
       name,
@@ -83,7 +84,7 @@ const addDoctor = async (req, res) => {
     res.json({ success: true, message: "Doctor Added" });
   } catch (error) {
     console.log(error);
-    res.json({ success: false, message: error.message });
+    res.json({ success: false, message: error.message + "harman"});
   }
 };
 
@@ -96,7 +97,12 @@ const loginAdmin = async (req, res) => {
       email === process.env.ADMIN_EMAIL &&
       password === process.env.ADMIN_PASSWORD
     ) {
-      const token = jwt.sign(email + password, process.env.JWT_SECRET);
+      // create JWT with a payload object
+      const token = jwt.sign({ email }, process.env.JWT_SECRET, {
+        expiresIn: "2d", // optional expiry
+      });
+
+      // send the token to the frontend
       res.json({ success: true, token });
     } else {
       res.json({ success: false, message: "Invalid credentials" });
