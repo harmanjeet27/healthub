@@ -15,17 +15,14 @@ const registerUser = async (req, res) => {
       return res.json({ success: false, message: "Missing Details" });
     }
 
-    // validating email format
     if (!validator.isEmail(email)) {
       return res.json({ success: false, message: "enter a valid email" });
     }
 
-    // validating strong password
     if (password.length < 8) {
       return res.json({ success: false, message: "enter a strong password" });
     }
 
-    // hashing user password
     const salt = await bycrypt.genSalt(10);
     const hashedPassword = await bycrypt.hash(password, salt);
 
@@ -103,7 +100,6 @@ const updateProfile = async (req, res) => {
     });
 
     if (imageFile) {
-      // upload image to cloudinary
       const imageUpload = await cloudinary.uploader.upload(imageFile.path, {
         resource_type: "image",
       });
@@ -119,18 +115,26 @@ const updateProfile = async (req, res) => {
   }
 };
 
-// API to book appointment
+// API to book appointment (booking happens here; in your payment flow you call this AFTER successful payment)
 const bookAppointment = async (req, res) => {
   try {
     const { userId, docId, slotDate, slotTime } = req.body;
 
+    if (!userId || !docId || !slotDate || !slotTime) {
+      return res.json({ success: false, message: "Missing appointment fields" });
+    }
+
     const docData = await doctorModel.findById(docId).select("-password");
+
+    if (!docData) {
+      return res.json({ success: false, message: "Doctor not found" });
+    }
 
     if (!docData.available) {
       return res.json({ success: false, message: "Doctor not available" });
     }
 
-    let slots_booked = docData.slots_booked;
+    let slots_booked = docData.slots_booked || {};
 
     // checking for slot availability
     if (slots_booked[slotDate]) {
@@ -146,8 +150,7 @@ const bookAppointment = async (req, res) => {
 
     const userData = await userModel.findById(userId).select("-password");
 
-    delete docData.slots_booked;
-
+    // create appointment document
     const appointmentData = {
       userId,
       docId,
@@ -157,6 +160,9 @@ const bookAppointment = async (req, res) => {
       slotTime,
       slotDate,
       date: Date.now(),
+      cancelled: false,
+      isCompleted: false,
+      paymentStatus: "pending", // default pending, should be 'paid' after verification
     };
 
     const newAppointment = new appointmentModel(appointmentData);
@@ -165,7 +171,7 @@ const bookAppointment = async (req, res) => {
     // save new slots data in docData
     await doctorModel.findByIdAndUpdate(docId, { slots_booked });
 
-    res.json({ success: true, message: "Appointment Booked" });
+    res.json({ success: true, message: "Appointment Booked", appointmentId: newAppointment._id });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });
@@ -176,6 +182,8 @@ const bookAppointment = async (req, res) => {
 const listAppointment = async (req, res) => {
   try {
     const { userId } = req.body;
+    if (!userId) return res.json({ success: false, message: "Missing userId" });
+
     const appointments = await appointmentModel.find({ userId });
 
     res.json({ success: true, appointments });
@@ -190,10 +198,18 @@ const cancelAppointment = async (req, res) => {
   try {
     const { userId, appointmentId } = req.body;
 
+    if (!userId || !appointmentId) {
+      return res.json({ success: false, message: "Missing fields" });
+    }
+
     const appointmentData = await appointmentModel.findById(appointmentId);
 
+    if (!appointmentData) {
+      return res.json({ success: false, message: "Appointment not found" });
+    }
+
     // verify appointment user
-    if (appointmentData.userId !== userId) {
+    if (appointmentData.userId.toString() !== userId.toString()) {
       return res.json({ success: false, message: "Unauthorized action" });
     }
 
@@ -202,20 +218,57 @@ const cancelAppointment = async (req, res) => {
     });
 
     // releasing doctor slot
-
     const { docId, slotDate, slotTime } = appointmentData;
 
     const doctorData = await doctorModel.findById(docId);
 
-    let slots_booked = doctorData.slots_booked;
-
-    slots_booked[slotDate] = slots_booked[slotDate].filter(
-      (e) => e !== slotTime
-    );
-
-    await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    if (doctorData && doctorData.slots_booked && doctorData.slots_booked[slotDate]) {
+      let slots_booked = doctorData.slots_booked;
+      slots_booked[slotDate] = slots_booked[slotDate].filter((e) => e !== slotTime);
+      await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    }
 
     res.json({ success: true, message: "Appointment Cancelled" });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * markAppointmentAsPaid
+ * - Called after Razorpay payment verification (frontend should call this after /api/payment/verify returns success)
+ * - Params (in body): userId, appointmentId, razorpay_payment_id (optional), razorpay_order_id (optional)
+ * - This marks appointment paymentStatus to 'paid' and saves payment id
+ */
+const markAppointmentAsPaid = async (req, res) => {
+  try {
+    const { userId, appointmentId, razorpay_payment_id, razorpay_order_id } = req.body;
+
+    if (!userId || !appointmentId) {
+      return res.json({ success: false, message: "Missing fields" });
+    }
+
+    const appointment = await appointmentModel.findById(appointmentId);
+
+    if (!appointment) {
+      return res.json({ success: false, message: "Appointment not found" });
+    }
+
+    if (appointment.userId.toString() !== userId.toString()) {
+      return res.json({ success: false, message: "Unauthorized action" });
+    }
+
+    const updateData = {
+      paymentStatus: "paid",
+      paymentId: razorpay_payment_id || appointment.paymentId || null,
+      paymentOrderId: razorpay_order_id || appointment.paymentOrderId || null,
+      paidAt: Date.now(),
+    };
+
+    await appointmentModel.findByIdAndUpdate(appointmentId, updateData);
+
+    return res.json({ success: true, message: "Appointment marked as paid" });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });
@@ -230,4 +283,5 @@ export {
   bookAppointment,
   listAppointment,
   cancelAppointment,
+  markAppointmentAsPaid,
 };
