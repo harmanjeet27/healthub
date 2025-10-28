@@ -3,45 +3,27 @@ import { AppContext } from "../context/AppContext";
 import axios from "axios";
 import { toast } from "react-toastify";
 
-const MyAppointments = () => {
-  const { backendUrl, token, getDoctorsData } = useContext(AppContext);
 
+const MyAppointments = () => {
+  const { backendUrl, token, getDoctorsData, currencySymbol } = useContext(AppContext);
   const [appointments, setAppointments] = useState([]);
-  const months = [
-    "",
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
+
+  const months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   const slotDateFormat = (slotDate) => {
     const dateArray = slotDate.split("_");
-    return (
-      dateArray[0] + " " + months[Number(dateArray[1])] + " " + dateArray[2]
-    );
+    return `${dateArray[0]} ${months[Number(dateArray[1])]} ${dateArray[2]}`;
   };
 
   const getUserAppointments = async () => {
     try {
-      const { data } = await axios.get(backendUrl + "/api/user/appointments", {
+      const { data } = await axios.get(`${backendUrl}/api/user/appointments`, {
         headers: { token },
       });
-
       if (data.success) {
         setAppointments(data.appointments.reverse());
-        console.log(data.appointments);
       }
     } catch (error) {
-      console.log(error);
       toast.error(error.message);
     }
   };
@@ -49,7 +31,7 @@ const MyAppointments = () => {
   const cancelAppointment = async (appointmentId) => {
     try {
       const { data } = await axios.post(
-        backendUrl + "/api/user/cancel-appointment",
+        `${backendUrl}/api/user/cancel-appointment`,
         { appointmentId },
         { headers: { token } }
       );
@@ -61,10 +43,74 @@ const MyAppointments = () => {
         toast.error(data.message);
       }
     } catch (error) {
-      console.log(error);
       toast.error(error.message);
     }
   };
+
+  // ✅ Razorpay Payment Integration
+  const handlePayment = async (appointment) => {
+  try {
+    // Step 1: Create order
+    const { data } = await axios.post(
+      `${backendUrl}/api/payment/create-order`,
+      { amount: appointment.amount },  // ✅ correct field
+      { headers: { token } }
+    );
+
+    if (!data.success) {
+      return toast.error("Failed to create payment order");
+    }
+
+    const { order } = data;
+
+    const options = {
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+      amount: order.amount,
+      currency: order.currency,
+      name: "HealthHub",
+      description: "Doctor Appointment Payment",
+      order_id: order.id,
+      handler: async function (response) {
+        try {
+          const verifyRes = await axios.post(
+            `${backendUrl}/api/payment/verify`,
+            {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              userId: appointment.userId,
+              doctorId: appointment.docId,      // ✅ correct field name
+              appointmentId: appointment._id,   // ✅ pass this if needed in backend
+            },
+            { headers: { token } }
+          );
+
+          if (verifyRes.data.success) {
+            toast.success("Payment Successful!");
+            getUserAppointments();
+          } else {
+            toast.error("Payment Verification Failed");
+          }
+        } catch (error) {
+          toast.error("Payment verification error");
+        }
+      },
+      prefill: {
+        name: appointment.userData.name,
+        email: appointment.userData.email,
+        contact: appointment.userData.phone,
+      },
+      theme: {
+        color: "#3399cc",
+      },
+    };
+
+    const razorpay = new window.Razorpay(options);
+    razorpay.open();
+  } catch (error) {
+    toast.error("Payment failed to initiate");
+  }
+};
 
   useEffect(() => {
     if (token) {
@@ -74,42 +120,32 @@ const MyAppointments = () => {
 
   return (
     <div>
-      <p className="pb-3 mt-12 font-medium text-zinc-700 border-b">
-        My appointments
-      </p>
+      <p className="pb-3 mt-12 font-medium text-zinc-700 border-b">My appointments</p>
       <div>
         {appointments.map((item, index) => (
-          <div
-            className="grid grid-cols-[1fr_2fr] gap-4 sm:flex sm:gap-6 py-2 border-b"
-            key={index}
-          >
+          <div className="grid grid-cols-[1fr_2fr] gap-4 sm:flex sm:gap-6 py-2 border-b" key={index}>
             <div>
-              <img
-                className="w-32 bg-indigo-50"
-                src={item.docData.image}
-                alt=""
-              />
+              <img className="w-32 bg-indigo-50" src={item.docData.image || "https://placehold.co/150"} alt="" />
             </div>
             <div className="flex-1 text-sm text-zinc-600">
-              <p className="text-neutral-800 font-semibold">
-                {item.docData.name}
-              </p>
+              <p className="text-neutral-800 font-semibold">{item.docData.name}</p>
               <p>{item.docData.speciality}</p>
               <p className="text-zinc-700 font-medium mt-1">Address:</p>
               <p className="text-xs">{item.docData.address.line1}</p>
               <p className="text-xs">{item.docData.address.line2}</p>
               <p className="text-xs mt-1">
-                <span className="text-sm text-neutral-700 font-medium">
-                  Date & Time:
-                </span>{" "}
+                <span className="text-sm text-neutral-700 font-medium">Date & Time:</span>{" "}
                 {slotDateFormat(item.slotDate)} | {item.slotTime}
               </p>
             </div>
-            <div></div>
             <div className="flex flex-col gap-2 justify-end">
               {!item.cancelled && !item.isCompleted && (
-                <button className="text-sm text-stone-500 text-center sm:min-w-48 py-2 border rounded hover:bg-primary hover:text-white transition-all duration-300">
-                  Pay Online
+                <button
+                  onClick={() => handlePayment(item)}
+                  className="text-sm text-stone-500 text-center sm:min-w-48 py-2 border rounded hover:bg-primary hover:text-white transition-all duration-300"
+                >
+                  Pay Online {currencySymbol}
+                  {item.docData.fees}
                 </button>
               )}
               {!item.cancelled && !item.isCompleted && (

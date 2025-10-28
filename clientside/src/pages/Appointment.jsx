@@ -8,7 +8,7 @@ import axios from "axios";
 
 const Appointment = () => {
   const { docId } = useParams();
-  const { doctors, currencySymbol, backendUrl, token, getDoctorsData } =
+  const { doctors, currencySymbol, backendUrl, token, getDoctorsData, userData } =
     useContext(AppContext);
   const daysOfWeek = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
@@ -19,28 +19,26 @@ const Appointment = () => {
   const [slotIndex, setSlotIndex] = useState(0);
   const [slotTime, setSlotTime] = useState("");
 
+  // ✅ Fetch doctor info
   const fetchDocInfo = async () => {
     const docInfo = doctors.find((doc) => doc._id === docId);
     setDocInfo(docInfo);
   };
 
+  // ✅ Generate available slots
   const getAvailableSlots = async () => {
     setDocSlots([]);
 
-    // getting current date
     let today = new Date();
 
     for (let i = 0; i < 7; i++) {
-      // getting date with index
       let currentDate = new Date(today);
       currentDate.setDate(today.getDate() + i);
 
-      // setting end time of the date with index
       let endTime = new Date();
       endTime.setDate(today.getDate() + i);
       endTime.setHours(21, 0, 0, 0);
 
-      // setting hours
       if (today.getDate() === currentDate.getDate()) {
         currentDate.setHours(
           currentDate.getHours() > 10 ? currentDate.getHours() + 1 : 10
@@ -64,23 +62,19 @@ const Appointment = () => {
         let year = currentDate.getFullYear();
 
         const slotDate = day + "_" + month + "_" + year;
-        const slotTime = formattedTime;
-
         const isSlotAvailable =
-          docInfo.slots_booked[slotDate] &&
-          docInfo.slots_booked[slotDate].includes(slotTime)
+          docInfo?.slots_booked[slotDate] &&
+          docInfo.slots_booked[slotDate].includes(formattedTime)
             ? false
             : true;
 
         if (isSlotAvailable) {
-          // add slot to array
           timeSlots.push({
             datetime: new Date(currentDate),
             time: formattedTime,
           });
         }
 
-        // Increment current time by 30 minutes
         currentDate.setMinutes(currentDate.getMinutes() + 30);
       }
 
@@ -88,36 +82,103 @@ const Appointment = () => {
     }
   };
 
-  const bookAppointment = async () => {
+  // ✅ Payment + booking function
+  const bookAppointmentWithPayment = async () => {
     if (!token) {
-      toast.warn("Login to book appointment");
+      toast.warn("Please login first");
       return navigate("/login");
+    }
+
+    if (!slotTime) {
+      toast.warn("Please select a time slot");
+      return;
     }
 
     try {
       const date = docSlots[slotIndex][0].datetime;
-
       let day = date.getDate();
       let month = date.getMonth() + 1;
       let year = date.getFullYear();
-
       const slotDate = day + "_" + month + "_" + year;
 
+      // 1️⃣ Create Razorpay order
       const { data } = await axios.post(
-        backendUrl + "/api/user/book-appointment",
-        { docId, slotDate, slotTime },
-        { headers: { token } }
+        `${backendUrl}/api/payment/create-order`,
+        {
+          amount: docInfo.fees,
+          userId: userData._id,
+          doctorId: docId,
+        }
       );
-      if (data.success) {
-        toast.success(data.message);
-        getDoctorsData();
-        navigate("/my-appointments");
-      } else {
-        toast.error(data.message);
+
+      if (!data.success) {
+        toast.error("Failed to create payment order");
+        return;
       }
+
+      const { order, key } = data;
+
+      // 2️⃣ Razorpay Options
+      const options = {
+        key: key,
+        amount: order.amount,
+        currency: order.currency,
+        name: "HealthHub Appointment",
+        description: "Doctor Consultation Fee",
+        order_id: order.id,
+        handler: async function (response) {
+          try {
+            // 3️⃣ Verify payment
+            const verifyRes = await axios.post(
+              `${backendUrl}/api/payment/verify`,
+              {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                userId: userData._id,
+                doctorId: docId,
+                amount: docInfo.fees,
+              }
+            );
+
+            if (verifyRes.data.success) {
+              // 4️⃣ Book Appointment after payment confirmation
+              const appointmentRes = await axios.post(
+                backendUrl + "/api/user/book-appointment",
+                { docId, slotDate, slotTime },
+                { headers: { token } }
+              );
+
+              if (appointmentRes.data.success) {
+                toast.success("Appointment booked successfully!");
+                getDoctorsData(); // refresh doctor data
+                navigate("/my-appointments");
+              } else {
+                toast.error("Payment success, but could not book appointment");
+              }
+            } else {
+              toast.error("Payment verification failed");
+            }
+          } catch (err) {
+            console.error(err);
+            toast.error("Error verifying payment");
+          }
+        },
+        prefill: {
+          name: userData.name,
+          email: userData.email,
+          contact: userData.phone || "",
+        },
+        theme: {
+          color: "#3399cc",
+        },
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
     } catch (error) {
       console.log(error);
-      toast.error(error.message);
+      toast.error("Payment initialization failed");
     }
   };
 
@@ -126,17 +187,13 @@ const Appointment = () => {
   }, [doctors, docId]);
 
   useEffect(() => {
-    getAvailableSlots();
+    if (docInfo) getAvailableSlots();
   }, [docInfo]);
-
-  useEffect(() => {
-    console.log(docSlots);
-  }, [docSlots]);
 
   return (
     docInfo && (
       <div>
-        {/* -------------------- Doctor Details -------------------- */}
+        {/* Doctor Details */}
         <div className="flex flex-col sm:flex-row gap-4">
           <div>
             <img
@@ -147,7 +204,6 @@ const Appointment = () => {
           </div>
 
           <div className="flex-1 border border-gray-400 rounded-lg p-8 py-7 bg-white mx-2 sm:mx-0 mt-[-80px] sm:mt-0">
-            {/* -------------------- Doc Info : name, degree, experience -------------------- */}
             <p className="flex items-center gap-2 text-2xl font-medium text-gray-900">
               {docInfo.name}
               <img className="w-5" src={assets.verified_icon} alt="" />
@@ -160,16 +216,6 @@ const Appointment = () => {
                 {docInfo.experience}
               </button>
             </div>
-
-            {/* -------------------- Doctor About -------------------- */}
-            <div>
-              <p className="flex items-center gap-1 text-sm font-medium text-gray-600 mt-3">
-                About <img src={assets.info_icon} alt="" />
-              </p>
-              <p className="text-sm text-gray-500 max-w-[700px] mt-1">
-                {docInfo.about}
-              </p>
-            </div>
             <p className="text-gray-500 font-medium mt-4">
               Appointment fee:{" "}
               <span className="text-gray-600">
@@ -180,11 +226,11 @@ const Appointment = () => {
           </div>
         </div>
 
-        {/* -------------------- Booking Slots -------------------- */}
+        {/* Booking Slots */}
         <div className="sm:ml-72 sm:pl-4 mt-4 font-medium text-gray-700">
           <p>Booking slots</p>
           <div className="flex gap-3 items-center w-full overflow-x-scroll mt-4">
-            {docSlots.length &&
+            {docSlots.length > 0 &&
               docSlots.map((item, index) => (
                 <div
                   onClick={() => setSlotIndex(index)}
@@ -202,7 +248,7 @@ const Appointment = () => {
           </div>
 
           <div className="flex items-center gap-3 w-full overflow-x-scroll mt-4">
-            {docSlots.length &&
+            {docSlots.length > 0 &&
               docSlots[slotIndex].map((item, index) => (
                 <p
                   onClick={() => setSlotTime(item.time)}
@@ -218,14 +264,13 @@ const Appointment = () => {
               ))}
           </div>
           <button
-            onClick={bookAppointment}
+            onClick={bookAppointmentWithPayment}
             className="bg-primary text-white text-sm font-light px-14 py-3 rounded-full my-6"
           >
             Book an appointment
           </button>
         </div>
 
-        {/* -------------------- Listing Related Doctors -------------------- */}
         <RelatedDoctors docId={docId} speciality={docInfo.speciality} />
       </div>
     )

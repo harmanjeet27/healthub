@@ -6,7 +6,10 @@ export const AppContext = createContext();
 
 const AppContextProvider = (props) => {
   const currencySymbol = "$";
-  const backendUrl = import.meta.env.VITE_BACKEND_URL;
+
+  // ✅ Ensures no trailing slash to avoid double slashes in API calls
+  const backendUrl = "http://localhost:4000";
+
 
   const [doctors, setDoctors] = useState([]);
   const [token, setToken] = useState(
@@ -14,9 +17,10 @@ const AppContextProvider = (props) => {
   );
   const [userData, setUserData] = useState(false);
 
+  // ✅ Fetch doctors list
   const getDoctorsData = async () => {
     try {
-      const { data } = await axios.get(backendUrl + "/api/doctor/list");
+      const { data } = await axios.get(`${backendUrl}/api/doctor/list`);
       if (data.success) {
         setDoctors(data.doctors);
       } else {
@@ -28,9 +32,10 @@ const AppContextProvider = (props) => {
     }
   };
 
+  // ✅ Load user profile when logged in
   const loadUserProfileData = async () => {
     try {
-      const { data } = await axios.get(backendUrl + "/api/user/get-profile", {
+      const { data } = await axios.get(`${backendUrl}/api/user/get-profile`, {
         headers: { token },
       });
       if (data.success) {
