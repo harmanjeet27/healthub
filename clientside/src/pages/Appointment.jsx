@@ -112,7 +112,7 @@ const Appointment = () => {
       );
 
       if (!data.success) {
-        toast.error("Failed to create payment order");
+        toast.error(data.message);
         return;
       }
 
