@@ -103,16 +103,23 @@ const Appointment = () => {
 
       // 1️⃣ Create Razorpay order
       const { data } = await axios.post(
-        `${backendUrl}/api/payment/create-order`,
-        {
-          amount: docInfo.fees,
-          userId: userData._id,
-          doctorId: docId,
-        }
-      );
+  `${backendUrl}/api/payment/create-order`,
+  {
+    amount: docInfo.fees,
+    userId: userData._id,
+    doctorId: docId,
+  },
+  {
+    headers: {
+      token: token,  
+    },
+  }
+);
+
+
 
       if (!data.success) {
-        toast.error(data.message);
+        toast.error("harman " + data.message);
         return;
       }
 
