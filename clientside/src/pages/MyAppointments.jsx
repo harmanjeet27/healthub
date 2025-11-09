@@ -141,11 +141,11 @@ const MyAppointments = () => {
             <div className="flex flex-col gap-2 justify-end">
               {!item.cancelled && !item.isCompleted && (
                 <button
-                  onClick={() => handlePayment(item)}
-                  className="text-sm text-stone-500 text-center sm:min-w-48 py-2 border rounded hover:bg-primary hover:text-white transition-all duration-300"
+                 className="text-sm text-stone-500 text-center sm:min-w-48 py-2 border green rounded hover:bg-primary hover:text-white transition-all duration-300"
+
                 >
-                  Pay Online {currencySymbol}
-                  {item.docData.fees}
+                  Already Paid
+                
                 </button>
               )}
               {!item.cancelled && !item.isCompleted && (
