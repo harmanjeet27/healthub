@@ -1,6 +1,8 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import appointmentModel from "../models/appointmentModel.js"; // ✅ Make sure path matches your project structure
+import dotenv from "dotenv"; 
+dotenv.config();
 
 // ✅ Initialize Razorpay instance
 const razorpayInstance = new Razorpay({
@@ -17,6 +19,7 @@ export const createOrder = async (req, res) => {
     }
 
     // ✅ Convert amount to paise (Razorpay expects in INR paise format)
+    console.log("Creating order for amount:", amount);
     const options = {
       amount: Number(amount) * 100,
       currency: "INR",
@@ -39,7 +42,11 @@ export const createOrder = async (req, res) => {
 
 // ================== VERIFY PAYMENT ==================
 export const verifyPayment = async (req, res) => {
+  console.log("Verifying payment...");
   try {
+    console.log("=== VERIFY PAYMENT DEBUG ===");
+    console.log(req.body);
+
     const {
       razorpay_order_id,
       razorpay_payment_id,
@@ -49,6 +56,7 @@ export const verifyPayment = async (req, res) => {
     } = req.body;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      console.log("❌ Missing payment details");
       return res.json({ success: false, message: "Missing payment details" });
     }
 
@@ -59,16 +67,24 @@ export const verifyPayment = async (req, res) => {
       .update(sign)
       .digest("hex");
 
+    console.log("Expected:", expectedSign);
+    console.log("Received:", razorpay_signature);
+
     if (expectedSign !== razorpay_signature) {
+      console.log("❌ Payment verification failed: signature mismatch");
       return res.json({ success: false, message: "Payment verification failed" });
     }
 
-    // ✅ Update payment status in appointment
-    await appointmentModel.findOneAndUpdate(
+    console.log("✅ Signature verified successfully!");
+
+    // ✅ Update appointment status (optional)
+    const updated = await appointmentModel.findOneAndUpdate(
       { userId, docId: doctorId },
       { payment: true },
       { new: true }
     );
+
+    console.log("Updated appointment:", updated);
 
     res.json({ success: true, message: "Payment verified successfully" });
   } catch (error) {
