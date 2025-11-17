@@ -21,17 +21,6 @@ app.use(express.json());
 app.use(cors());
 
 
-// make it ready for production 
-import path from "path";
-const __dirname = path.resolve();
-
-if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "/clientside/dist")));
-  app.get("*", (req, res) =>
-    res.sendFile(path.resolve(__dirname, "clientside", "dist", "index.html"))
-  );
-}
-
 // api endpoints
 app.use("/api/admin", adminRouter);
 app.use("/api/doctor", doctorRouter);
