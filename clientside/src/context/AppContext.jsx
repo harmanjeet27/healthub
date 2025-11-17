@@ -8,7 +8,7 @@ const AppContextProvider = (props) => {
   const currencySymbol = "$";
 
   // ✅ Ensures no trailing slash to avoid double slashes in API calls
-  const backendUrl = "http://localhost:4000";
+const backendUrl = import.meta.env.VITE_BACKEND_URL.replace(/\/$/, "");
 
 
   const [doctors, setDoctors] = useState([]);
