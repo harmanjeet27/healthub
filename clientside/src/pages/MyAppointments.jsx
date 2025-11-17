@@ -1,177 +1,299 @@
 import React, { useContext, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { AppContext } from "../context/AppContext";
-import axios from "axios";
+import { assets } from "../assets/assets";
+import RelatedDoctors from "../components/RelatedDoctors";
 import { toast } from "react-toastify";
+import axios from "axios";
 
+const Appointment = () => {
+  const { docId } = useParams();
+  const {
+    doctors,
+    currencySymbol,
+    backendUrl,
+    token,
+    getDoctorsData,
+    userData,
+  } = useContext(AppContext);
 
-const MyAppointments = () => {
-  const { backendUrl, token, getDoctorsData, currencySymbol } = useContext(AppContext);
-  const [appointments, setAppointments] = useState([]);
+  const navigate = useNavigate();
+  const [docInfo, setDocInfo] = useState(null);
+  const [docSlots, setDocSlots] = useState([]);
+  const [slotIndex, setSlotIndex] = useState(0);
+  const [slotTime, setSlotTime] = useState("");
+  const [isPaid, setIsPaid] = useState(false); // ✅ track payment status
 
-  const months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const daysOfWeek = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
-  const slotDateFormat = (slotDate) => {
-    const dateArray = slotDate.split("_");
-    return `${dateArray[0]} ${months[Number(dateArray[1])]} ${dateArray[2]}`;
+  // ✅ Fetch doctor info
+  const fetchDocInfo = async () => {
+    const info = doctors.find((doc) => doc._id === docId);
+    setDocInfo(info);
   };
 
-  const getUserAppointments = async () => {
-    try {
-      const { data } = await axios.get(`${backendUrl}/api/user/appointments`, {
-        headers: { token },
-      });
-      if (data.success) {
-        setAppointments(data.appointments.reverse());
-      }
-    } catch (error) {
-      toast.error(error.message);
-    }
-  };
+  // ✅ Generate available slots
+  const getAvailableSlots = async () => {
+    if (!docInfo) return;
+    setDocSlots([]);
+    const today = new Date();
 
-  const cancelAppointment = async (appointmentId) => {
-    try {
-      const { data } = await axios.post(
-        `${backendUrl}/api/user/cancel-appointment`,
-        { appointmentId },
-        { headers: { token } }
-      );
-      if (data.success) {
-        toast.success(data.message);
-        getUserAppointments();
-        getDoctorsData();
+    for (let i = 0; i < 7; i++) {
+      let currentDate = new Date(today);
+      currentDate.setDate(today.getDate() + i);
+
+      let endTime = new Date();
+      endTime.setDate(today.getDate() + i);
+      endTime.setHours(21, 0, 0, 0);
+
+      if (today.getDate() === currentDate.getDate()) {
+        currentDate.setHours(
+          currentDate.getHours() > 10 ? currentDate.getHours() + 1 : 10
+        );
+        currentDate.setMinutes(currentDate.getMinutes() > 30 ? 30 : 0);
       } else {
-        toast.error(data.message);
+        currentDate.setHours(10);
+        currentDate.setMinutes(0);
       }
-    } catch (error) {
-      toast.error(error.message);
-    }
-  };
 
-  // ✅ Razorpay Payment Integration
-  const handlePayment = async (appointment) => {
-  try {
-    // Step 1: Create order
-    const { data } = await axios.post(
-      `${backendUrl}/api/payment/create-order`,
-      { amount: appointment.amount },  // ✅ correct field
-      { headers: { token } }
-    );
+      let timeSlots = [];
+      while (currentDate < endTime) {
+        const formattedTime = currentDate.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
 
-    if (!data.success) {
-      return toast.error("Failed to create payment order");
-    }
+        const day = currentDate.getDate();
+        const month = currentDate.getMonth() + 1;
+        const year = currentDate.getFullYear();
+        const slotDate = `${day}_${month}_${year}`;
 
-    const { order } = data;
-
-    const options = {
-      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-      amount: order.amount,
-      currency: order.currency,
-      name: "HealthHub",
-      description: "Doctor Appointment Payment",
-      order_id: order.id,
-      handler: async function (response) {
-        try {
-          const verifyRes = await axios.post(
-            `${backendUrl}/api/payment/verify`,
-            {
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-              userId: appointment.userId,
-              doctorId: appointment.docId,      // ✅ correct field name
-              appointmentId: appointment._id,   // ✅ pass this if needed in backend
-            },
-            { headers: { token } }
+        const isSlotAvailable =
+          !(
+            docInfo?.slots_booked?.[slotDate] &&
+            docInfo.slots_booked[slotDate].includes(formattedTime)
           );
 
-          if (verifyRes.data.success) {
-            toast.success("Payment Successful!");
-            getUserAppointments();
-          } else {
-            toast.error("Payment Verification Failed");
-          }
-        } catch (error) {
-          toast.error("Payment verification error");
+        if (isSlotAvailable) {
+          timeSlots.push({
+            datetime: new Date(currentDate),
+            time: formattedTime,
+          });
         }
-      },
-      prefill: {
-        name: appointment.userData.name,
-        email: appointment.userData.email,
-        contact: appointment.userData.phone,
-      },
-      theme: {
-        color: "#3399cc",
-      },
-    };
 
-    const razorpay = new window.Razorpay(options);
-    razorpay.open();
-  } catch (error) {
-    toast.error("Payment failed to initiate");
-  }
-};
+        currentDate.setMinutes(currentDate.getMinutes() + 30);
+      }
+
+      setDocSlots((prev) => [...prev, timeSlots]);
+    }
+  };
+
+  // ✅ Book + Pay
+  const bookAppointmentWithPayment = async () => {
+    if (!token) {
+      toast.warn("Please login first");
+      return navigate("/login");
+    }
+
+    if (!slotTime) {
+      toast.warn("Please select a time slot");
+      return;
+    }
+
+    try {
+      const date = docSlots[slotIndex][0].datetime;
+      const slotDate = `${date.getDate()}_${date.getMonth() + 1}_${date.getFullYear()}`;
+
+      // Step 1️⃣: Create Razorpay order
+      const { data } = await axios.post(
+        `${backendUrl}/api/payment/create-order`,
+        {
+          amount: docInfo.fees,
+          userId: userData._id,
+          doctorId: docId,
+        },
+        { headers: { token } }
+      );
+
+      if (!data.success) {
+        toast.error("Error: " + data.message);
+        return;
+      }
+
+      const { order, key } = data;
+
+      // Step 2️⃣: Razorpay Payment
+      const options = {
+        key,
+        amount: order.amount,
+        currency: order.currency,
+        name: "HealthHub Appointment",
+        description: "Doctor Consultation Fee",
+        order_id: order.id,
+
+        handler: async function (response) {
+          console.log("Payment handler response:", response);
+
+          if (!response || !response.razorpay_order_id) {
+            toast.error("Payment failed or cancelled!");
+            return;
+          }
+
+          try {
+            // Step 3️⃣: Verify Payment
+            const verifyRes = await axios.post(
+              `${backendUrl}/api/payment/verify`,
+              {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                userId: userData._id,
+                doctorId: docId,
+                amount: docInfo.fees,
+              },
+              { headers: { token } }
+            );
+
+            if (verifyRes.data.success) {
+              // Step 4️⃣: Book Appointment
+              const appointmentRes = await axios.post(
+                `${backendUrl}/api/user/book-appointment`,
+                { docId, slotDate, slotTime },
+                { headers: { token } }
+              );
+
+              if (appointmentRes.data.success) {
+                setIsPaid(true);
+                toast.success("Appointment booked successfully!");
+                getDoctorsData();
+                navigate("/my-appointments");
+              } else {
+                toast.error("Payment verified, but booking failed!");
+              }
+            } else {
+              toast.error("Payment verification failed!");
+            }
+          } catch (err) {
+            console.error(err);
+            toast.error("Error verifying payment");
+          }
+        },
+
+        prefill: {
+          name: userData.name,
+          email: userData.email,
+          contact: userData.phone || "",
+        },
+        theme: { color: "#3399cc" },
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+    } catch (error) {
+      console.error(error);
+      toast.error("Payment initialization failed");
+    }
+  };
 
   useEffect(() => {
-    if (token) {
-      getUserAppointments();
-    }
-  }, [token]);
+    fetchDocInfo();
+  }, [doctors, docId]);
+
+  useEffect(() => {
+    if (docInfo) getAvailableSlots();
+  }, [docInfo]);
+
+  if (!docInfo) return null;
 
   return (
     <div>
-      <p className="pb-3 mt-12 font-medium text-zinc-700 border-b">My appointments</p>
-      <div>
-        {appointments.map((item, index) => (
-          <div className="grid grid-cols-[1fr_2fr] gap-4 sm:flex sm:gap-6 py-2 border-b" key={index}>
-            <div>
-              <img className="w-32 bg-indigo-50" src={item.docData.image || "https://placehold.co/150"} alt="" />
-            </div>
-            <div className="flex-1 text-sm text-zinc-600">
-              <p className="text-neutral-800 font-semibold">{item.docData.name}</p>
-              <p>{item.docData.speciality}</p>
-              <p className="text-zinc-700 font-medium mt-1">Address:</p>
-              <p className="text-xs">{item.docData.address.line1}</p>
-              <p className="text-xs">{item.docData.address.line2}</p>
-              <p className="text-xs mt-1">
-                <span className="text-sm text-neutral-700 font-medium">Date & Time:</span>{" "}
-                {slotDateFormat(item.slotDate)} | {item.slotTime}
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 justify-end">
-              {!item.cancelled && !item.isCompleted && (
-                <button
-                  onClick={() => handlePayment(item)}
-                  className="text-sm text-stone-500 text-center sm:min-w-48 py-2 border rounded hover:bg-primary hover:text-white transition-all duration-300"
-                >
-                  Pay Online {currencySymbol}
-                  {item.docData.fees}
-                </button>
-              )}
-              {!item.cancelled && !item.isCompleted && (
-                <button
-                  onClick={() => cancelAppointment(item._id)}
-                  className="text-sm text-stone-500 text-center sm:min-w-48 py-2 border rounded hover:bg-red-600 hover:text-white transition-all duration-300"
-                >
-                  Cancel appointment
-                </button>
-              )}
-              {item.cancelled && !item.isCompleted && (
-                <button className="sm:min-w-48 py-2 border border-red-500 rounded text-red-500">
-                  Appointment cancelled
-                </button>
-              )}
-              {item.isCompleted && (
-                <button className="sm:min-w-48 py-2 border border-green-500 rounded text-green-500">
-                  Completed
-                </button>
-              )}
-            </div>
+      {/* Doctor Info */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div>
+          <img
+            className="bg-primary w-full sm:max-w-72 rounded-lg"
+            src={docInfo.image}
+            alt=""
+          />
+        </div>
+
+        <div className="flex-1 border border-gray-400 rounded-lg p-8 py-7 bg-white mx-2 sm:mx-0 mt-[-80px] sm:mt-0">
+          <p className="flex items-center gap-2 text-2xl font-medium text-gray-900">
+            {docInfo.name}
+            <img className="w-5" src={assets.verified_icon} alt="" />
+          </p>
+          <div className="flex items-center gap-2 text-sm mt-1 text-gray-600">
+            <p>
+              {docInfo.degree} - {docInfo.speciality}
+            </p>
+            <button className="py-0.5 px-2 border text-xs rounded-full">
+              {docInfo.experience}
+            </button>
           </div>
-        ))}
+          <p className="text-gray-500 font-medium mt-4">
+            Appointment fee:{" "}
+            <span className="text-gray-600">
+              {currencySymbol}
+              {docInfo.fees}
+            </span>
+          </p>
+        </div>
       </div>
+
+      {/* Slot Selector */}
+      <div className="sm:ml-72 sm:pl-4 mt-4 font-medium text-gray-700">
+        <p>Booking slots</p>
+
+        <div className="flex gap-3 items-center w-full overflow-x-scroll mt-4">
+          {docSlots.map((daySlots, i) => (
+            <div
+              key={i}
+              onClick={() => setSlotIndex(i)}
+              className={`text-center py-6 min-w-16 rounded-full cursor-pointer ${
+                slotIndex === i
+                  ? "bg-primary text-white"
+                  : "border border-gray-200"
+              }`}
+            >
+              <p>{daySlots[0] && daysOfWeek[daySlots[0].datetime.getDay()]}</p>
+              <p>{daySlots[0] && daySlots[0].datetime.getDate()}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3 w-full overflow-x-scroll mt-4">
+          {docSlots[slotIndex]?.map((slot, i) => (
+            <p
+              key={i}
+              onClick={() => setSlotTime(slot.time)}
+              className={`text-sm font-light flex-shrink-0 px-5 py-2 rounded-full cursor-pointer ${
+                slot.time === slotTime
+                  ? "bg-primary text-white"
+                  : "text-gray-400 border border-gray-300"
+              }`}
+            >
+              {slot.time.toLowerCase()}
+            </p>
+          ))}
+        </div>
+
+        {/* ✅ Pay/Book Button */}
+        <button
+          disabled={isPaid}
+          onClick={bookAppointmentWithPayment}
+          className={`${
+            isPaid ? "bg-gray-400 cursor-not-allowed" : "bg-primary"
+          } text-white text-sm font-light px-14 py-3 rounded-full my-6`}
+        >
+          {isPaid
+            ? "Payment Completed"
+            : `Book & Pay ${currencySymbol}${docInfo.fees}`}
+        </button>
+      </div>
+
+      <RelatedDoctors docId={docId} speciality={docInfo.speciality} />
     </div>
   );
 };
 
-export default MyAppointments;
+export default Appointment;
