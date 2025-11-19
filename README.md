@@ -11,5 +11,7 @@ ADMIN CREDENITALS:
 Email : admin@admin.com
 Password : admin123
 
+ClientSide Link: https://healthub-bice.vercel.app/
+
 Backend Live Server : https://healthub-av26.onrender.com
 
