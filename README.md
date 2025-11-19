@@ -13,5 +13,7 @@ Password : admin123
 
 ClientSide Link: https://healthub-bice.vercel.app/
 
+adminSide Link : https://healthub-5a2p.vercel.app/
+
 Backend Live Server : https://healthub-av26.onrender.com
 
